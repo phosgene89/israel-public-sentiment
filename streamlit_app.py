@@ -1,136 +1,98 @@
 import streamlit as st
-
-st.title("🎈 My new app")
-
-import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
+from io import StringIO
 
-# Page config
-st.set_page_config(
-    page_title="Time Series Predictor",
-    page_icon="📈",
-    layout="wide"
-)
+st.set_page_config(page_title="Time Series Explorer", layout="wide")
+st.title("📈 Time Series Data Explorer")
+st.markdown("Paste your data below or use the example")
 
-st.title("📈 Time Series Predictions")
-st.markdown("Simple interactive demo showing historical data + future predictions")
+# ====================== DATA INPUT ======================
+st.sidebar.header("Data Input")
 
-# Sidebar controls
-st.sidebar.header("Controls")
+data_input = st.sidebar.radio("Choose input method", ["Use Example Data", "Paste CSV Data"])
 
-# Data selection
-dataset = st.sidebar.selectbox(
-    "Select Dataset",
-    ["Daily Sales", "Website Traffic", "Stock Price", "Temperature"]
-)
+if data_input == "Use Example Data":
+    raw_data = """time_step,AvgTone,NumMentions,GoldsteinScale,Actor1Geo_Lat,Actor1Geo_Long
+46139,-5.167173,10.0,4.000000,31.50000,34.75000
+46140,-3.685762,190.0,3.565000,31.52667,34.79833
+46141,-2.204350,370.0,3.130000,31.55334,34.84666
+46142,-4.052501,331.0,3.502222,31.38808,39.33436
+46143,-14.871795,25.0,-7.000000,31.96420,34.80440"""
+else:
+    raw_data = st.sidebar.text_area("Paste your CSV data here", height=200)
 
-forecast_days = st.sidebar.slider("Forecast Horizon (days)", 7, 60, 30)
-show_confidence = st.sidebar.checkbox("Show Confidence Interval", value=True)
-
-# Generate synthetic data
-def generate_data(dataset_name):
-    np.random.seed(42)
-    today = datetime.now()
-    dates = [today - timedelta(days=i) for i in range(120, -1, -1)]
+# Parse the data
+try:
+    df = pd.read_csv(StringIO(raw_data.strip()))
     
-    if dataset_name == "Daily Sales":
-        values = np.cumsum(np.random.normal(10, 5, 121)) + 500
-        unit = "Sales ($)"
-    elif dataset_name == "Website Traffic":
-        values = np.cumsum(np.random.normal(8, 15, 121)) + 1200
-        unit = "Visitors"
-    elif dataset_name == "Stock Price":
-        values = 150 + np.cumsum(np.random.normal(0.2, 1.5, 121))
-        unit = "Price ($)"
-    else:  # Temperature
-        values = 22 + np.sin(np.arange(121)/10) * 8 + np.random.normal(0, 2, 121)
-        unit = "°C"
+    # Convert time_step to datetime (assuming format like 46139 = 2046-01-39? → we'll treat as date)
+    if 'time_step' in df.columns:
+        df['Date'] = pd.to_datetime(df['time_step'].astype(str).str.zfill(6), 
+                                   format='%y%m%d', errors='coerce')
+    else:
+        st.error("Data must contain a 'time_step' column")
+        st.stop()
+
+    st.success(f"Loaded {len(df)} rows with columns: {list(df.columns)}")
     
-    df = pd.DataFrame({"Date": dates, "Actual": values.round(2)})
-    df.set_index("Date", inplace=True)
-    return df, unit
+except Exception as e:
+    st.error(f"Error parsing data: {e}")
+    st.stop()
 
-# Generate data
-df, unit = generate_data(dataset)
+# ====================== DISPLAY ======================
+st.subheader("Data Preview")
+st.dataframe(df, use_container_width=True)
 
-# Create fake predictions
-last_date = df.index[-1]
-future_dates = [last_date + timedelta(days=i) for i in range(1, forecast_days + 1)]
+# Select columns to plot
+numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+if 'time_step' in numeric_cols:
+    numeric_cols.remove('time_step')
+if 'Date' in numeric_cols:
+    numeric_cols.remove('Date')
 
-# Simple trend + noise forecast
-last_value = df["Actual"].iloc[-1]
-trend = np.linspace(last_value, last_value * 1.15, forecast_days)
-noise = np.random.normal(0, last_value * 0.03, forecast_days)
-predictions = trend + noise
+plot_columns = st.multiselect("Select columns to plot", 
+                             options=numeric_cols, 
+                             default=['GoldsteinScale', 'NumMentions'])
 
-pred_df = pd.DataFrame({
-    "Date": future_dates,
-    "Prediction": predictions.round(2)
-}).set_index("Date")
+# ====================== PLOTTING ======================
+if plot_columns:
+    fig = go.Figure()
+    
+    for col in plot_columns:
+        fig.add_trace(go.Scatter(
+            x=df['Date'],
+            y=df[col],
+            mode='lines+markers',
+            name=col,
+            line=dict(width=3),
+            marker=dict(size=6)
+        ))
 
-# Plot
-fig = go.Figure()
+    fig.update_layout(
+        title="Time Series Plot",
+        xaxis_title="Date",
+        yaxis_title="Value",
+        height=650,
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
 
-# Historical data
-fig.add_trace(go.Scatter(
-    x=df.index, 
-    y=df["Actual"],
-    mode='lines+markers',
-    name='Historical',
-    line=dict(color='#1f77b4', width=2)
-))
+    st.plotly_chart(fig, use_container_width=True)
 
-# Predictions
-fig.add_trace(go.Scatter(
-    x=pred_df.index,
-    y=pred_df["Prediction"],
-    mode='lines+markers',
-    name='Prediction',
-    line=dict(color='#ff7f0e', width=3, dash='dash')
-))
+    # Optional: Individual plots
+    if len(plot_columns) > 1:
+        st.subheader("Individual Plots")
+        cols = st.columns(2)
+        for i, col in enumerate(plot_columns):
+            with cols[i % 2]:
+                fig_single = go.Figure()
+                fig_single.add_trace(go.Scatter(
+                    x=df['Date'], y=df[col], mode='lines+markers', name=col
+                ))
+                fig_single.update_layout(title=col, height=400)
+                st.plotly_chart(fig_single, use_container_width=True)
+else:
+    st.warning("Please select at least one column to plot.")
 
-if show_confidence:
-    upper = pred_df["Prediction"] * 1.12
-    lower = pred_df["Prediction"] * 0.88
-    fig.add_trace(go.Scatter(
-        x=pred_df.index.tolist() + pred_df.index.tolist()[::-1],
-        y=upper.tolist() + lower.tolist()[::-1],
-        fill='toself',
-        fillcolor='rgba(255, 127, 14, 0.2)',
-        line=dict(color='rgba(255,127,14,0)'),
-        name='Confidence Interval'
-    ))
-
-fig.update_layout(
-    title=f"{dataset} - Historical + {forecast_days}-Day Forecast",
-    xaxis_title="Date",
-    yaxis_title=unit,
-    hovermode="x unified",
-    height=600,
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-)
-
-st.plotly_chart(fig, use_container_width=True)
-
-# Metrics
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.metric("Last Actual Value", f"{df['Actual'].iloc[-1]:.2f} {unit}")
-with col2:
-    st.metric("Predicted Value (30 days)", f"{pred_df['Prediction'].iloc[-1]:.2f} {unit}")
-with col3:
-    st.metric("Expected Change", f"{((pred_df['Prediction'].iloc[-1] / df['Actual'].iloc[-1]) - 1)*100:.1f}%")
-
-# Data tables
-tab1, tab2 = st.tabs(["Historical Data", "Predictions"])
-
-with tab1:
-    st.dataframe(df.tail(15), use_container_width=True)
-
-with tab2:
-    st.dataframe(pred_df.head(20), use_container_width=True)
-
-st.caption("📌 This is a demo app using synthetic data. In a real app, you would connect to your model (Prophet, LSTM, etc.).")
+st.caption("Tip: You can paste new data in the sidebar. The app will automatically detect numeric columns and plot them.")
