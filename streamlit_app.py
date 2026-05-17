@@ -3,105 +3,116 @@ import pandas as pd
 import plotly.graph_objects as go
 from io import StringIO
 
-st.set_page_config(page_title="Time Series Explorer", layout="wide")
-st.title("📈 Time Series Data Explorer")
-st.markdown("Plots using **time_step** as the time axis")
+st.set_page_config(page_title="Time Series + Forecast", layout="wide")
+st.title("📈 Time Series Explorer with Forecast")
+st.markdown("**AvgTone** Historical + 5-Step Forecast")
 
-# ====================== DATA INPUT ======================
+# ====================== HISTORICAL DATA ======================
 st.sidebar.header("Data Input")
 
-data_input = st.sidebar.radio("Choose input method", ["Use Example Data", "Paste Your Data"])
+raw_hist = """time_step,AvgTone,NumMentions,GoldsteinScale
+46139,-5.167173,10.0,4.000000
+46140,-3.685762,190.0,3.565000
+46141,-2.204350,370.0,3.130000
+46142,-4.052501,331.0,3.502222
+46143,-14.871795,25.0,-7.000000"""
 
-if data_input == "Use Example Data":
-    raw_data = """time_step,AvgTone,AvgTone,GoldsteinScale,Actor1Geo_Lat,Actor1Geo_Long
-46139,-5.167173,10.0,4.000000,31.50000,34.75000
-46140,-3.685762,190.0,3.565000,31.52667,34.79833
-46141,-2.204350,370.0,3.130000,31.55334,34.84666
-46142,-4.052501,331.0,3.502222,31.38808,39.33436
-46143,-14.871795,25.0,-7.000000,31.96420,34.80440"""
-else:
-    raw_data = st.sidebar.text_area("Paste your CSV data here", height=250)
+df_hist = pd.read_csv(StringIO(raw_hist))
+df_hist['time_step'] = pd.to_numeric(df_hist['time_step'])
 
-# Parse data
-try:
-    df = pd.read_csv(StringIO(raw_data.strip()))
-    
-    if 'time_step' not in df.columns:
-        st.error("Data must contain a 'time_step' column")
-        st.stop()
-    
-    # Ensure time_step is numeric
-    df['time_step'] = pd.to_numeric(df['time_step'], errors='coerce')
-    df = df.sort_values('time_step').reset_index(drop=True)
-    
-    st.success(f"✅ Loaded {len(df)} rows | Time steps from {df['time_step'].min()} to {df['time_step'].max()}")
-    
-except Exception as e:
-    st.error(f"Error parsing data: {e}")
-    st.stop()
+st.success(f"Historical data loaded: {len(df_hist)} rows")
 
-# ====================== PREVIEW ======================
-st.subheader("Data Preview")
-st.dataframe(df, use_container_width=True)
+# ====================== DUMMY FORECAST DATAFRAME ======================
+# This simulates what your Databricks endpoint would return
+data_pred = {
+    'time_step': [46144, 46145, 46146, 46147, 46148],
+    'AvgTone': [-6.85, -5.23, -4.71, -7.12, -3.95],           # Main prediction
+    'prediction_lower': [-9.12, -8.10, -8.45, -11.80, -9.20],
+    'prediction_upper': [-4.58, -2.36, -0.97, -2.44, 1.30],
+    'forecast_step': [1, 2, 3, 4, 5],
+    'prediction_timestamp': ['2026-05-18 06:30'] * 5
+}
 
-# Select columns to plot
-numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
-numeric_cols.remove('time_step')  # Remove time_step from y-axis options
+df_pred = pd.DataFrame(data_pred)
 
-plot_columns = st.multiselect(
-    "Select columns to plot", 
-    options=numeric_cols, 
-    default=['GoldsteinScale', 'AvgTone']
+st.sidebar.subheader("Forecast Info")
+st.sidebar.write(f"**5-Step Forecast** generated")
+st.sidebar.write(f"Last time_step: {df_hist['time_step'].max()}")
+
+# ====================== MAIN PLOT ======================
+fig = go.Figure()
+
+# Historical Data
+fig.add_trace(go.Scatter(
+    x=df_hist['time_step'],
+    y=df_hist['AvgTone'],
+    mode='lines+markers',
+    name='Historical AvgTone',
+    line=dict(color='#1f77b4', width=3),
+    marker=dict(size=8)
+))
+
+# Forecast
+fig.add_trace(go.Scatter(
+    x=df_pred['time_step'],
+    y=df_pred['AvgTone'],
+    mode='lines+markers',
+    name='Forecast (5 steps)',
+    line=dict(color='#ff7f0e', width=4, dash='dash'),
+    marker=dict(size=9, symbol='diamond')
+))
+
+# Confidence Interval
+fig.add_trace(go.Scatter(
+    x=pd.concat([df_pred['time_step'], df_pred['time_step'][::-1]]),
+    y=pd.concat([df_pred['prediction_upper'], df_pred['prediction_lower'][::-1]]),
+    fill='toself',
+    fillcolor='rgba(255, 127, 14, 0.25)',
+    line=dict(color='rgba(255,127,14,0)'),
+    name='95% Confidence Interval'
+))
+
+fig.update_layout(
+    title="AvgTone Time Series + 5-Step Forecast",
+    xaxis_title="Time Step",
+    yaxis_title="AvgTone",
+    height=650,
+    hovermode="x unified",
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    template="plotly_white"
 )
 
-# ====================== MAIN TIME SERIES PLOT ======================
-if plot_columns:
-    fig = go.Figure()
-    
-    for col in plot_columns:
-        fig.add_trace(go.Scatter(
-            x=df['time_step'],
-            y=df[col],
-            mode='lines+markers',
-            name=col,
-            line=dict(width=3),
-            marker=dict(size=7)
-        ))
+st.plotly_chart(fig, use_container_width=True)
 
-    fig.update_layout(
-        title="Time Series Plot (using time_step)",
-        xaxis_title="Time Step",
-        yaxis_title="Value",
-        height=650,
-        hovermode="x unified",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        template="plotly_white"
-    )
+# ====================== METRICS ======================
+col1, col2, col3, col4 = st.columns(4)
 
-    st.plotly_chart(fig, use_container_width=True)
+with col1:
+    st.metric("Last Actual", f"{df_hist['AvgTone'].iloc[-1]:.3f}")
+with col2:
+    st.metric("5-Step Forecast", f"{df_pred['AvgTone'].iloc[-1]:.3f}")
+with col3:
+    change = ((df_pred['AvgTone'].iloc[-1] - df_hist['AvgTone'].iloc[-1]) / 
+              abs(df_hist['AvgTone'].iloc[-1]) * 100)
+    st.metric("Expected Change", f"{change:+.1f}%")
+with col4:
+    st.metric("Forecast Horizon", "5 steps")
 
-    # Show individual plots if multiple columns selected
-    if len(plot_columns) > 1:
-        st.subheader("Individual Time Series")
-        cols_grid = st.columns(2)
-        for i, col in enumerate(plot_columns):
-            with cols_grid[i % 2]:
-                fig_i = go.Figure()
-                fig_i.add_trace(go.Scatter(
-                    x=df['time_step'], 
-                    y=df[col], 
-                    mode='lines+markers',
-                    name=col,
-                    line=dict(width=3)
-                ))
-                fig_i.update_layout(
-                    title=col,
-                    xaxis_title="Time Step",
-                    height=400
-                )
-                st.plotly_chart(fig_i, use_container_width=True)
+# ====================== DATA TABLES ======================
+tab1, tab2 = st.tabs(["Historical Data", "Forecast Data"])
 
-else:
-    st.info("Please select at least one column to plot.")
+with tab1:
+    st.dataframe(df_hist, use_container_width=True)
 
-st.caption("💡 **time_step** is used directly as the x-axis for accurate time series representation.")
+with tab2:
+    st.dataframe(df_pred, use_container_width=True)
+
+# Optional: Show all columns side by side
+st.subheader("Full Combined View")
+combined = pd.concat([
+    df_hist.assign(type='Historical'),
+    df_pred.assign(type='Forecast').drop(columns=['prediction_timestamp'])
+], ignore_index=True)
+st.dataframe(combined, use_container_width=True)
+
+st.caption("✅ This structure is ready to be replaced with real predictions from your Databricks endpoint.")
