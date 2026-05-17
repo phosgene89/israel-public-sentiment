@@ -18,7 +18,9 @@ raw_hist = """time_step,AvgTone,NumMentions,GoldsteinScale
 df_hist = pd.read_csv(StringIO(raw_hist))
 df_hist['time_step'] = pd.to_numeric(df_hist['time_step'])
 
-# ====================== DUMMY FORECAST (5 steps) ======================
+last_hist = df_hist.iloc[-1]
+
+# ====================== DUMMY FORECAST ======================
 data_pred = {
     'time_step': [46144, 46145, 46146, 46147, 46148],
     'AvgTone': [-6.85, -5.23, -4.71, -7.12, -3.95],
@@ -29,20 +31,31 @@ data_pred = {
 
 df_pred = pd.DataFrame(data_pred)
 
-# ====================== CREATE CONNECTED FORECAST ======================
-# Get last historical point
-last_hist = df_hist.iloc[-1]
-
-# Create forecast line that starts from the last historical point
+# ====================== CONNECTED FORECAST LINE ======================
 df_forecast_line = pd.DataFrame({
     'time_step': [last_hist['time_step']] + df_pred['time_step'].tolist(),
     'AvgTone': [last_hist['AvgTone']] + df_pred['AvgTone'].tolist()
 })
 
+# ====================== CONNECTED CONFIDENCE INTERVAL ======================
+# Start with zero width at last historical point
+df_conf = pd.concat([
+    pd.DataFrame({
+        'time_step': [last_hist['time_step']],
+        'lower': [last_hist['AvgTone']],
+        'upper': [last_hist['AvgTone']]
+    }),
+    pd.DataFrame({
+        'time_step': df_pred['time_step'],
+        'lower': df_pred['prediction_lower'],
+        'upper': df_pred['prediction_upper']
+    })
+], ignore_index=True)
+
 # ====================== PLOTTING ======================
 fig = go.Figure()
 
-# Historical Data
+# Historical
 fig.add_trace(go.Scatter(
     x=df_hist['time_step'],
     y=df_hist['AvgTone'],
@@ -52,7 +65,7 @@ fig.add_trace(go.Scatter(
     marker=dict(size=8)
 ))
 
-# Forecast (starts from last historical point)
+# Forecast Line (connected)
 fig.add_trace(go.Scatter(
     x=df_forecast_line['time_step'],
     y=df_forecast_line['AvgTone'],
@@ -62,10 +75,10 @@ fig.add_trace(go.Scatter(
     marker=dict(size=9, symbol='diamond')
 ))
 
-# Confidence Interval (only on future part)
+# Confidence Interval (starts with zero width at last point)
 fig.add_trace(go.Scatter(
-    x=pd.concat([df_pred['time_step'], df_pred['time_step'][::-1]]),
-    y=pd.concat([df_pred['prediction_upper'], df_pred['prediction_lower'][::-1]]),
+    x=pd.concat([df_conf['time_step'], df_conf['time_step'][::-1]]),
+    y=pd.concat([df_conf['upper'], df_conf['lower'][::-1]]),
     fill='toself',
     fillcolor='rgba(255, 127, 14, 0.25)',
     line=dict(color='rgba(255,127,14,0)'),
@@ -73,7 +86,7 @@ fig.add_trace(go.Scatter(
 ))
 
 fig.update_layout(
-    title="AvgTone Time Series + 5-Step Forecast (Connected from Last Point)",
+    title="AvgTone Time Series + 5-Step Forecast (Smooth Connection)",
     xaxis_title="Time Step",
     yaxis_title="AvgTone",
     height=650,
@@ -85,22 +98,20 @@ fig.update_layout(
 st.plotly_chart(fig, use_container_width=True)
 
 # ====================== METRICS ======================
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3 = st.columns(3)
 with col1:
-    st.metric("Last Actual", f"{last_hist['AvgTone']:.3f}")
+    st.metric("Last Actual AvgTone", f"{last_hist['AvgTone']:.3f}")
 with col2:
     st.metric("5-Step Forecast", f"{df_pred['AvgTone'].iloc[-1]:.3f}")
 with col3:
     change = ((df_pred['AvgTone'].iloc[-1] - last_hist['AvgTone']) / abs(last_hist['AvgTone']) * 100)
     st.metric("Expected Change", f"{change:+.1f}%")
-with col4:
-    st.metric("Forecast Horizon", "5 steps")
 
-# Data Tabs
+# Data Tables
 tab1, tab2 = st.tabs(["📊 Historical Data", "🔮 Forecast Data"])
 with tab1:
     st.dataframe(df_hist, use_container_width=True)
 with tab2:
     st.dataframe(df_pred, use_container_width=True)
 
-st.caption("The orange dashed line now starts exactly from the last blue historical point for smooth visualization.")
+st.caption("The forecast line and confidence band now start smoothly from the last historical point with zero uncertainty at that point.")
