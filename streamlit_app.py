@@ -5,12 +5,12 @@ from io import StringIO
 
 st.set_page_config(page_title="Time Series Explorer", layout="wide")
 st.title("📈 Time Series Data Explorer")
-st.markdown("Paste your data below or use the example")
+st.markdown("Plots using **time_step** as the time axis")
 
 # ====================== DATA INPUT ======================
 st.sidebar.header("Data Input")
 
-data_input = st.sidebar.radio("Choose input method", ["Use Example Data", "Paste CSV Data"])
+data_input = st.sidebar.radio("Choose input method", ["Use Example Data", "Paste Your Data"])
 
 if data_input == "Use Example Data":
     raw_data = """time_step,AvgTone,NumMentions,GoldsteinScale,Actor1Geo_Lat,Actor1Geo_Long
@@ -20,79 +20,88 @@ if data_input == "Use Example Data":
 46142,-4.052501,331.0,3.502222,31.38808,39.33436
 46143,-14.871795,25.0,-7.000000,31.96420,34.80440"""
 else:
-    raw_data = st.sidebar.text_area("Paste your CSV data here", height=200)
+    raw_data = st.sidebar.text_area("Paste your CSV data here", height=250)
 
-# Parse the data
+# Parse data
 try:
     df = pd.read_csv(StringIO(raw_data.strip()))
     
-    # Convert time_step to datetime (assuming format like 46139 = 2046-01-39? → we'll treat as date)
-    if 'time_step' in df.columns:
-        df['Date'] = pd.to_datetime(df['time_step'].astype(str).str.zfill(6), 
-                                   format='%y%m%d', errors='coerce')
-    else:
+    if 'time_step' not in df.columns:
         st.error("Data must contain a 'time_step' column")
         st.stop()
-
-    st.success(f"Loaded {len(df)} rows with columns: {list(df.columns)}")
+    
+    # Ensure time_step is numeric
+    df['time_step'] = pd.to_numeric(df['time_step'], errors='coerce')
+    df = df.sort_values('time_step').reset_index(drop=True)
+    
+    st.success(f"✅ Loaded {len(df)} rows | Time steps from {df['time_step'].min()} to {df['time_step'].max()}")
     
 except Exception as e:
     st.error(f"Error parsing data: {e}")
     st.stop()
 
-# ====================== DISPLAY ======================
+# ====================== PREVIEW ======================
 st.subheader("Data Preview")
 st.dataframe(df, use_container_width=True)
 
 # Select columns to plot
 numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
-if 'time_step' in numeric_cols:
-    numeric_cols.remove('time_step')
-if 'Date' in numeric_cols:
-    numeric_cols.remove('Date')
+numeric_cols.remove('time_step')  # Remove time_step from y-axis options
 
-plot_columns = st.multiselect("Select columns to plot", 
-                             options=numeric_cols, 
-                             default=['GoldsteinScale', 'NumMentions'])
+plot_columns = st.multiselect(
+    "Select columns to plot", 
+    options=numeric_cols, 
+    default=['GoldsteinScale', 'NumMentions']
+)
 
-# ====================== PLOTTING ======================
+# ====================== MAIN TIME SERIES PLOT ======================
 if plot_columns:
     fig = go.Figure()
     
     for col in plot_columns:
         fig.add_trace(go.Scatter(
-            x=df['Date'],
+            x=df['time_step'],
             y=df[col],
             mode='lines+markers',
             name=col,
             line=dict(width=3),
-            marker=dict(size=6)
+            marker=dict(size=7)
         ))
 
     fig.update_layout(
-        title="Time Series Plot",
-        xaxis_title="Date",
+        title="Time Series Plot (using time_step)",
+        xaxis_title="Time Step",
         yaxis_title="Value",
         height=650,
         hovermode="x unified",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        template="plotly_white"
     )
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # Optional: Individual plots
+    # Show individual plots if multiple columns selected
     if len(plot_columns) > 1:
-        st.subheader("Individual Plots")
-        cols = st.columns(2)
+        st.subheader("Individual Time Series")
+        cols_grid = st.columns(2)
         for i, col in enumerate(plot_columns):
-            with cols[i % 2]:
-                fig_single = go.Figure()
-                fig_single.add_trace(go.Scatter(
-                    x=df['Date'], y=df[col], mode='lines+markers', name=col
+            with cols_grid[i % 2]:
+                fig_i = go.Figure()
+                fig_i.add_trace(go.Scatter(
+                    x=df['time_step'], 
+                    y=df[col], 
+                    mode='lines+markers',
+                    name=col,
+                    line=dict(width=3)
                 ))
-                fig_single.update_layout(title=col, height=400)
-                st.plotly_chart(fig_single, use_container_width=True)
-else:
-    st.warning("Please select at least one column to plot.")
+                fig_i.update_layout(
+                    title=col,
+                    xaxis_title="Time Step",
+                    height=400
+                )
+                st.plotly_chart(fig_i, use_container_width=True)
 
-st.caption("Tip: You can paste new data in the sidebar. The app will automatically detect numeric columns and plot them.")
+else:
+    st.info("Please select at least one column to plot.")
+
+st.caption("💡 **time_step** is used directly as the x-axis for accurate time series representation.")
