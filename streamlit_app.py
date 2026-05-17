@@ -13,7 +13,7 @@ st.sidebar.header("Data Input")
 data_input = st.sidebar.radio("Choose input method", ["Use Example Data", "Paste Your Data"])
 
 if data_input == "Use Example Data":
-    raw_data = """time_step,AvgTone,NumMentions,GoldsteinScale,Actor1Geo_Lat,Actor1Geo_Long
+    raw_data = """time_step,AvgTone,AvgTone,GoldsteinScale,Actor1Geo_Lat,Actor1Geo_Long
 46139,-5.167173,10.0,4.000000,31.50000,34.75000
 46140,-3.685762,190.0,3.565000,31.52667,34.79833
 46141,-2.204350,370.0,3.130000,31.55334,34.84666
@@ -51,7 +51,7 @@ numeric_cols.remove('time_step')  # Remove time_step from y-axis options
 plot_columns = st.multiselect(
     "Select columns to plot", 
     options=numeric_cols, 
-    default=['GoldsteinScale', 'NumMentions']
+    default=['GoldsteinScale', 'AvgTone']
 )
 
 # ====================== MAIN TIME SERIES PLOT ======================
